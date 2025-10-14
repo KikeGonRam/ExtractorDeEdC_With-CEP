@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Extractor de Estados (Banorte / BBVA / Santander)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root{
+      --primary:#e30613;
+      --secondary:#444;
+      --ok:#0a7;
+      --err:#b00;
+      --border:#ddd;
+    }
+    body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:900px;margin:40px auto;padding:0 16px}
+    h1{margin-bottom:24px}
+    .card{border:1px solid var(--border);border-radius:8px;padding:16px}
+    .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+    select,input[type=file]{padding:6px}
+    button{padding:10px 14px;border:0;border-radius:6px;cursor:pointer;color:#fff;background:var(--primary)}
+    button.secondary{background:var(--secondary)}
+    button[disabled]{opacity:.6;cursor:not-allowed}
+    pre{background:#fafafa;border:1px dashed #ccc;padding:12px;border-radius:6px;white-space:pre-wrap}
+    .ok{color:var(--ok)}
+    .err{color:var(--err)}
+    .hint{font-size:.9rem;color:#555;margin-top:.5rem}
+  </style>
+</head>
+<body>
+  <h1>Extractor de Estados</h1>
+
+  <div class="card">
+    <form id="form" class="row">
+      <label for="bank">Banco:</label>
+      <select id="bank">
+        <option value="banorte">Banorte</option>
+        <option value="bbva">BBVA</option>
+        <option value="santander">Santander</option>
+      </select>
+
+      <input id="file" type="file" name="file" accept="application/pdf" required />
+      <button id="btn" type="submit">Extraer a Excel</button>
+      <button id="btn-cep" type="button" class="secondary" title="Genera Excel y descarga CEPs en un ZIP">Excel + CEP (ZIP)</button>
+    </form>
+    <div class="hint">El botón “Excel + CEP (ZIP)” intentará obtener CEPs en Banxico con los datos que apliquen y los
+      agregará como enlaces en la última columna.</div>
+    <pre id="out">Selecciona el banco, sube un PDF y elige una opción.</pre>
+  </div>
+
+  <script>
+    const form    = document.getElementById('form');
+    const bankSel = document.getElementById('bank');
+    const fileInp = document.getElementById('file');
+    const btnXLS  = document.getElementById('btn');
+    const btnCEP  = document.getElementById('btn-cep');
+    const out     = document.getElementById('out');
+
+    // Endpoints “solo Excel”
+    const endpointsExcel = {
+      banorte:   '/extract/banorte',
+      bbva:      '/extract/bbva',
+      santander: '/extract/santander'
+    };
+
+    // Endpoints “Excel + CEP (ZIP)”
+    const endpointsZip = {
+      banorte:   '/extract-with-cep/banorte',
+      bbva:      '/extract-with-cep/bbva',
+      santander: '/extract-with-cep/santander'
+      // Si prefieres querystring, cámbialos por: '/extract/banorte?with_cep=1', etc.
+    };
+
+    // Sufijos de archivo sugeridos
+    const suffixExcel = {
+      banorte:   '_banorte.xlsx',
+      bbva:      '_bbva.xlsx',
+      santander: '_santander.xlsx'
+    };
+    const suffixZip = {
+      banorte:   '_banorte_cep.zip',
+      bbva:      '_bbva_cep.zip',
+      santander: '_santander_cep.zip'
+    };
+
+    function filenameFromHeaders(res, fallback) {
+      const cd = res.headers.get('content-disposition') || '';
+      const m = cd.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?/i);
+      return m ? decodeURIComponent(m[1]) : fallback;
+    }
+
+    function baseNameFromPdf(fileObj){
+      return (fileObj?.name || 'estado').replace(/\.pdf$/i,'') || 'estado';
+    }
+
+    function setBusy(busy){
+      btnXLS.disabled = busy;
+      btnCEP.disabled = busy;
+      fileInp.disabled = busy;
+      bankSel.disabled = busy;
+    }
+
+    async function sendAndDownload(endpoint, fileObj, suggestedName, progressText){
+      setBusy(true);
+      out.className = '';
+      out.textContent = progressText;
+
+      try {
+        const fd = new FormData();
+        fd.append('file', fileObj);
+
+        const res = await fetch(endpoint, { method: 'POST', body: fd });
+
+        if (!res.ok) {
+          let msg = '';
+          const ctype = res.headers.get('content-type') || '';
+          try {
+            if (ctype.includes('application/json')) {
+              const data = await res.json();
+              msg = data.error || JSON.stringify(data);
+            } else {
+              msg = await res.text();
+            }
+          } catch { msg = 'Error HTTP ' + res.status; }
+          out.className = 'err';
+          out.textContent = 'Fallo: ' + msg;
+          return;
+        }
+
+        const blob = await res.blob();
+        const name = filenameFromHeaders(res, suggestedName);
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = name;
+        document.body.appendChild(a); a.click();
+        a.remove(); URL.revokeObjectURL(url);
+
+        out.className = 'ok';
+        out.textContent = `✔ Descargado: ${name}`;
+      } catch (err) {
+        out.className = 'err';
+        out.textContent = 'Fallo inesperado: ' + (err?.message || err);
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    // Submit "Solo Excel"
+    form.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      if (!fileInp.files.length) { out.textContent = 'Selecciona un PDF primero.'; return; }
+      const bank = bankSel.value;
+      const endpoint = endpointsExcel[bank] || endpointsExcel.banorte;
+      const suggested = baseNameFromPdf(fileInp.files[0]) + (suffixExcel[bank] || '.xlsx');
+      sendAndDownload(endpoint, fileInp.files[0], suggested, `Procesando (${bank.toUpperCase()})…`);
+    });
+
+    // Click "Excel + CEP (ZIP)"
+    btnCEP.addEventListener('click', () => {
+      if (!fileInp.files.length) { out.textContent = 'Selecciona un PDF primero.'; return; }
+      const bank = bankSel.value;
+      const endpoint = endpointsZip[bank] || endpointsZip.banorte;
+      const suggested = baseNameFromPdf(fileInp.files[0]) + (suffixZip[bank] || '_cep.zip');
+      sendAndDownload(endpoint, fileInp.files[0], suggested, `Procesando con CEPs (${bank.toUpperCase()})…`);
+    });
+
+    // UX: limpiar mensaje al cambiar archivo
+    fileInp.addEventListener('change', () => { out.className=''; out.textContent='Listo para procesar.'; });
+  </script>
+</body>
+</html>

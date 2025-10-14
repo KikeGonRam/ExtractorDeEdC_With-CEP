@@ -1,0 +1,9 @@
+﻿fastapi
+uvicorn[standard]
+pandas
+openpyxl
+camelot-py[cv]
+pdfplumber
+python-multipart
+sqlalchemy
+pymysql
