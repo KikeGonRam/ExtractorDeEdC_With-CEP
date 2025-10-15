@@ -1,5 +1,6 @@
 # app.py
 from __future__ import annotations
+import jwt
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -12,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, Optional
 
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException, Form
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException, Form, Depends
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi import HTTPException
@@ -29,6 +30,21 @@ if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     except Exception:
         pass
+
+
+JWT_SECRET = os.getenv("JWT_SECRET", "supersecreto123")
+
+def verify_jwt(request: Request):
+    token = request.headers.get("auth_token") or request.headers.get("Authorization")
+    if token and token.startswith("Bearer "):
+        token = token.split(" ", 1)[1]
+    if not token:
+        raise HTTPException(status_code=401, detail="Token JWT requerido")
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        return payload  # Puedes retornar el usuario si lo necesitas
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=403, detail="Token JWT inválido")
 
 # ==========================
 #   Rutas de estáticos y store
@@ -507,7 +523,9 @@ def open_original_file(solicitud_id: int):
 @app.post("/extract/{bank}")
 async def extract_generic(
     bank: str, background_tasks: BackgroundTasks,
-    file: UploadFile = File(...), empresa: Optional[str] = Form(None),
+    file: UploadFile = File(...), 
+    empresa: Optional[str] = Form(None),
+    user: dict = Depends(verify_jwt)
 ):
     original_name = file.filename or "estado.pdf"
     pdf_path: Optional[Path] = None
@@ -549,6 +567,7 @@ async def extract_generic(
 async def extract_with_cep_generic(
     bank: str, background_tasks: BackgroundTasks,
     file: UploadFile = File(...), empresa: Optional[str] = Form(None),
+    user: dict = Depends(verify_jwt)
 ):
     original_name = file.filename or "estado.pdf"
     pdf_path: Optional[Path] = None
@@ -604,7 +623,7 @@ async def extract_with_cep_generic(
 #   ESPECÍFICAS (compatibilidad con frontend actual)
 # =========================================================
 @app.post("/extract/santander")
-async def extract_santander_only(background_tasks: BackgroundTasks, file: UploadFile = File(...), empresa: Optional[str] = Form(None)):
+async def extract_santander_only(background_tasks: BackgroundTasks, file: UploadFile = File(...), empresa: Optional[str] = Form(None), user: dict = Depends(verify_jwt)):
     bank = "santander"
     original_name = file.filename or "estado.pdf"
     pdf_path: Optional[Path] = None
@@ -640,7 +659,7 @@ async def extract_santander_only(background_tasks: BackgroundTasks, file: Upload
         return _as_error(e)
 
 @app.post("/extract/santander/with-cep")
-async def extract_santander_with_cep(background_tasks: BackgroundTasks, file: UploadFile = File(...), empresa: Optional[str] = Form(None)):
+async def extract_santander_with_cep(background_tasks: BackgroundTasks, file: UploadFile = File(...), empresa: Optional[str] = Form(None), user: dict = Depends(verify_jwt)):
     bank = "santander"
     original_name = file.filename or "estado.pdf"
     pdf_path: Optional[Path] = None
@@ -687,7 +706,7 @@ async def extract_santander_with_cep(background_tasks: BackgroundTasks, file: Up
         return _as_error(e)
 
 @app.post("/extract/banorte")
-async def extract_banorte_only(background_tasks: BackgroundTasks, file: UploadFile = File(...), empresa: Optional[str] = Form(None)):
+async def extract_banorte_only(background_tasks: BackgroundTasks, file: UploadFile = File(...), empresa: Optional[str] = Form(None), user: dict = Depends(verify_jwt)):
     from banorte_extractor import extract_banorte_to_xlsx
     bank = "banorte"
     original_name = file.filename or "estado.pdf"
@@ -722,7 +741,7 @@ async def extract_banorte_only(background_tasks: BackgroundTasks, file: UploadFi
         return _as_error(e)
 
 @app.post("/extract/banorte/with-cep")
-async def extract_banorte_with_cep(background_tasks: BackgroundTasks, file: UploadFile = File(...), empresa: Optional[str] = Form(None)):
+async def extract_banorte_with_cep(background_tasks: BackgroundTasks, file: UploadFile = File(...), empresa: Optional[str] = Form(None), user: dict = Depends(verify_jwt)):
     bank = "banorte"
     original_name = file.filename or "estado.pdf"
     pdf_path: Optional[Path] = None
