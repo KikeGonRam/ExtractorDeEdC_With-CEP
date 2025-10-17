@@ -13,11 +13,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, Optional
 
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException, Form, Depends
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException, Form, Depends, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
 from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger("uvicorn.error")
@@ -34,7 +34,7 @@ if sys.platform.startswith("win"):
 
 JWT_SECRET = os.getenv("JWT_SECRET", "supersecreto123")
 
-def verify_jwt(request: Request):
+def verify_jwt(request : Request):
     token = request.headers.get("auth_token") or request.headers.get("Authorization")
     if token and token.startswith("Bearer "):
         token = token.split(" ", 1)[1]
@@ -422,6 +422,21 @@ app.add_middleware(
     expose_headers=["Content-Disposition"],
 )
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+# Manejador para capturar por qué FastAPI devuelve 422 (RequestValidationError)
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    try:
+        body = await request.body()
+    except Exception:
+        body = b""
+    # No imprimir tokens completos
+    headers = {k: (v[:4] + '...' + v[-4:] if k.lower() in ('authorization','auth_token') and v else v) for k, v in request.headers.items()}
+    logger.error("RequestValidationError for %s %s - errors=%s", request.method, request.url, exc.errors())
+    logger.error("Request headers (masked): %s", headers)
+    logger.error("Request body preview (first 200 bytes): %s", body[:200])
+    return JSONResponse(status_code=422, content={"detail": exc.errors(), "body_preview_len": len(body)})
 
 @app.on_event("startup")
 def _on_start():
@@ -1153,3 +1168,32 @@ async def download_solicitud(solicitud_id: int, background_tasks: BackgroundTask
             if ext == "xlsx" else "application/zip"
         ),
     )
+
+
+# --- RUTA DE DEBUG (temporal) ---------------------------------
+@app.post("/debug/inspect")
+async def _debug_inspect(request: Request, background_tasks: BackgroundTasks, file: UploadFile | None = File(None)):
+    """Ruta temporal para debug: devuelve headers y si llegó archivo.
+    NO dejar en producción largo plazo.
+    """
+    try:
+        info = {"file_received": False, "filename": None}
+        if file:
+            info["file_received"] = True
+            info["filename"] = file.filename
+
+        # Recolectar headers y enmascarar Authorization/auth_token parcialmente
+        hdrs = {}
+        for k, v in request.headers.items():
+            if k.lower() in ("authorization", "auth_token") and v:
+                # muestra solo los primeros/últimos 4 caracteres
+                if len(v) > 8:
+                    hdrs[k] = v[:4] + "..." + v[-4:]
+                else:
+                    hdrs[k] = "***"
+            else:
+                hdrs[k] = v
+
+        return JSONResponse({"ok": True, "info": info, "headers": hdrs})
+    except Exception as e:
+        return _as_error(e)
