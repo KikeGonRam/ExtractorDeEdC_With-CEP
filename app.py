@@ -13,10 +13,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, Optional
 
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException, Form, Depends
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException, Form, Depends, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
 
@@ -34,7 +33,7 @@ if sys.platform.startswith("win"):
 
 JWT_SECRET = os.getenv("JWT_SECRET", "supersecreto123")
 
-def verify_jwt(request: Request):
+def verify_jwt(request : Request):
     token = request.headers.get("auth_token") or request.headers.get("Authorization")
     if token and token.startswith("Bearer "):
         token = token.split(" ", 1)[1]
@@ -1153,3 +1152,32 @@ async def download_solicitud(solicitud_id: int, background_tasks: BackgroundTask
             if ext == "xlsx" else "application/zip"
         ),
     )
+
+
+# --- RUTA DE DEBUG (temporal) ---------------------------------
+@app.post("/debug/inspect")
+async def _debug_inspect(request: Request, background_tasks: BackgroundTasks, file: UploadFile | None = File(None)):
+    """Ruta temporal para debug: devuelve headers y si llegó archivo.
+    NO dejar en producción largo plazo.
+    """
+    try:
+        info = {"file_received": False, "filename": None}
+        if file:
+            info["file_received"] = True
+            info["filename"] = file.filename
+
+        # Recolectar headers y enmascarar Authorization/auth_token parcialmente
+        hdrs = {}
+        for k, v in request.headers.items():
+            if k.lower() in ("authorization", "auth_token") and v:
+                # muestra solo los primeros/últimos 4 caracteres
+                if len(v) > 8:
+                    hdrs[k] = v[:4] + "..." + v[-4:]
+                else:
+                    hdrs[k] = "***"
+            else:
+                hdrs[k] = v
+
+        return JSONResponse({"ok": True, "info": info, "headers": hdrs})
+    except Exception as e:
+        return _as_error(e)
