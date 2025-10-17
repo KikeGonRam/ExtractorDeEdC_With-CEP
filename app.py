@@ -17,6 +17,7 @@ from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException, F
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
 from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger("uvicorn.error")
@@ -421,6 +422,21 @@ app.add_middleware(
     expose_headers=["Content-Disposition"],
 )
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+# Manejador para capturar por qué FastAPI devuelve 422 (RequestValidationError)
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    try:
+        body = await request.body()
+    except Exception:
+        body = b""
+    # No imprimir tokens completos
+    headers = {k: (v[:4] + '...' + v[-4:] if k.lower() in ('authorization','auth_token') and v else v) for k, v in request.headers.items()}
+    logger.error("RequestValidationError for %s %s - errors=%s", request.method, request.url, exc.errors())
+    logger.error("Request headers (masked): %s", headers)
+    logger.error("Request body preview (first 200 bytes): %s", body[:200])
+    return JSONResponse(status_code=422, content={"detail": exc.errors(), "body_preview_len": len(body)})
 
 @app.on_event("startup")
 def _on_start():
