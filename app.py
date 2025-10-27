@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, Optional
 
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException, Form, Depends
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException, Form, Depends, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi import HTTPException
@@ -35,15 +35,28 @@ if sys.platform.startswith("win"):
 JWT_SECRET = os.getenv("JWT_SECRET", "supersecreto123")
 
 def verify_jwt(request: Request):
+    # Prefer standard Authorization header but allow legacy custom header
     token = request.headers.get("auth_token") or request.headers.get("Authorization")
-    if token and token.startswith("Bearer "):
+    if token and isinstance(token, str) and token.startswith("Bearer "):
         token = token.split(" ", 1)[1]
     if not token:
+        # Log header keys for debugging (do NOT log header values / token)
+        try:
+            hdrs = list(request.headers.keys())
+        except Exception:
+            hdrs = []
+        logger.warning("JWT requerido pero no se encontró token en headers. Header keys: %s", hdrs)
         raise HTTPException(status_code=401, detail="Token JWT requerido")
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
         return payload  # Puedes retornar el usuario si lo necesitas
-    except jwt.InvalidTokenError:
+    except Exception as e:
+        # Evita lanzar AttributeError si la librería jwt difiere en excepciones
+        try:
+            hdrs = list(request.headers.keys())
+        except Exception:
+            hdrs = []
+        logger.warning("Falló la verificación JWT (%s). Header keys: %s", type(e).__name__, hdrs)
         raise HTTPException(status_code=403, detail="Token JWT inválido")
 
 # ==========================
