@@ -342,6 +342,8 @@ metadata = MetaData()
 solicitudes = Table(
     "solicitudes", metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("id_usuario", Integer, nullable=False),
+    Column("nombre_usuario", String(255), nullable=False),
     Column("archivo_nombre", String(255), nullable=False),
     Column("archivo_tamano", BigInteger, nullable=True),
     Column("archivo_sha256", String(64), nullable=True),
@@ -380,7 +382,8 @@ EST_OK, EST_FAIL, EST_PROC = "ok", "fail", "processing"
 # ==========================
 def _insert_processing(
     archivo_nombre: str, banco: str, empresa: Optional[str],
-    resultado_db: str, tam: Optional[int], sha: Optional[str]
+    resultado_db: str, tam: Optional[int], sha: Optional[str],
+    id_usuario: int, nombre_usuario: str
 ) -> int:
     if engine is None:
         return 0
@@ -388,6 +391,8 @@ def _insert_processing(
     with engine.begin() as conn:
         res = conn.execute(
             solicitudes.insert().values(
+                id_usuario=id_usuario,
+                nombre_usuario=nombre_usuario,
                 archivo_nombre=(archivo_nombre or "archivo.pdf")[:255],
                 archivo_tamano=tam,
                 archivo_sha256=sha,
@@ -550,7 +555,9 @@ async def extract_generic(
         pdf_path.write_bytes(await file.read())
 
         tam, sha = _save_pdf_to_store(pdf_path)
-        row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel"], tam, sha)
+        id_usuario = user.get("id_usuario")
+        nombre_usuario = user.get("nombre")
+        row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel"], tam, sha, id_usuario, nombre_usuario)
 
         out_xlsx = workdir / (Path(original_name).stem + ".xlsx")
         await run_in_threadpool(extractor, str(pdf_path), str(out_xlsx))
@@ -588,7 +595,9 @@ async def extract_with_cep_generic(
     try:
         make_zip_with_ceps_for_bank = _get_cep_service()
         if not make_zip_with_ceps_for_bank:
-            raise Exception("Falta cep_service.py o Playwright. Instala playwright y crea cep_service.py.")
+            # Si falta el servicio de CEP o Playwright no está instalado, devolver 501
+            # en lugar de lanzar una excepción que produce un 500 genérico.
+            return _as_error(Exception("Falta cep_service.py o Playwright. Instala playwright y crea cep_service.py."), status=501)
 
         workdir = _mk_workdir()
         pdf_path = workdir / original_name
@@ -613,8 +622,11 @@ async def extract_with_cep_generic(
         except Exception:
             logger.exception("No se pudo generar XLSX temporal para leer 'empresa'")
 
+        logger.info(f"[CEP DEBUG] Generando ZIP con CEP: bank={bank}, pdf_path={pdf_path}, workdir={workdir}")
         zip_str = await run_in_threadpool(_call_ceps, make_zip_with_ceps_for_bank, bank, str(pdf_path), str(workdir))
+        logger.info(f"[CEP DEBUG] Resultado zip_str={zip_str}")
         zip_path = Path(zip_str)
+        logger.info(f"[CEP DEBUG] zip_path.exists={zip_path.exists()}, zip_path={zip_path}")
 
         # Guardar salida en store/outputs y registrar en BD
         tam_out, sha_out, stored = _save_output_to_store(zip_path, "zip")
@@ -974,11 +986,14 @@ def list_solicitudes(
     resultado: str | None = None, estado: str | None = None,
     fecha_desde: str | None = None, fecha_hasta: str | None = None,
     q: str | None = None,
+    user: dict = Depends(verify_jwt)
 ):
     if engine is None: raise HTTPException(status_code=503, detail="BD no configurada")
     page = max(1, page); page_size = max(1, min(200, page_size)); offset = (page - 1) * page_size
 
     conds = []
+    id_usuario = user.get("id_usuario")
+    conds.append(solicitudes.c.id_usuario == id_usuario)
     if banco:     conds.append(solicitudes.c.banco == banco.strip().lower())
     if resultado in {"xlsx","zip"}: conds.append(solicitudes.c.resultado == resultado)
     if estado in {EST_OK, EST_FAIL, EST_PROC}: conds.append(solicitudes.c.estado == estado)
@@ -996,8 +1011,7 @@ def list_solicitudes(
 
     with engine.begin() as conn:
         total = conn.execute(
-            select(func.count()).select_from(solicitudes).where(where_all) if where_all
-            else select(func.count()).select_from(solicitudes)
+            select(func.count()).select_from(solicitudes).where(where_all)
         ).scalar_one()
         stmt = (
             select(
@@ -1005,13 +1019,8 @@ def list_solicitudes(
                 solicitudes.c.archivo_tamano, solicitudes.c.archivo_sha256, solicitudes.c.banco,
                 solicitudes.c.empresa, solicitudes.c.resultado, solicitudes.c.estado, solicitudes.c.error,
                 solicitudes.c.salida_nombre, solicitudes.c.salida_tamano, solicitudes.c.salida_sha256,
-            ).where(where_all) if where_all else
-            select(
-                solicitudes.c.id, solicitudes.c.solicitado_en, solicitudes.c.archivo_nombre,
-                solicitudes.c.archivo_tamano, solicitudes.c.archivo_sha256, solicitudes.c.banco,
-                solicitudes.c.empresa, solicitudes.c.resultado, solicitudes.c.estado, solicitudes.c.error,
-                solicitudes.c.salida_nombre, solicitudes.c.salida_tamano, solicitudes.c.salida_sha256,
-            )
+                solicitudes.c.id_usuario, solicitudes.c.nombre_usuario
+            ).where(where_all)
         )
         rows = conn.execute(stmt.order_by(desc(solicitudes.c.id)).offset(offset).limit(page_size)).mappings().all()
 
