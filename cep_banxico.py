@@ -710,11 +710,12 @@ def _handle_captcha(frm, page, workdir: Path, headless: bool) -> bool:
 # --- helper para clickear "Descargar CEP" y bajar el PDF ----------------
 def _click_descargar_y_bajar_pdf(page, frm, out_path: Path) -> Optional[Path]:
     """
-    Minimal (con TAB largos):
-      1) Click en 'Descargar CEP'
-      2) Espera 4s
-      3) Envía 4x TAB (delay largo) + espera 1s + ENTER
-      4) Captura la descarga vía expect_download
+    Mejorado: Intenta múltiples estrategias para descargar el CEP.
+      1) Busca el botón "Descargar CEP" de varias formas
+      2) Verifica si está habilitado
+      3) Intenta click directo, luego forzado, luego JavaScript
+      4) Usa TABx4 + ENTER como fallback
+      5) Captura screenshots de debug si falla
     """
     import re as _re
     try:
@@ -722,55 +723,131 @@ def _click_descargar_y_bajar_pdf(page, frm, out_path: Path) -> Optional[Path]:
     except Exception:
         pass
 
+    # Intentar encontrar el botón de varias formas
+    btn = None
     try:
+        # Método 1: Por ID
         btn = frm.locator("#btn_Descargar").first
-        if not btn or btn.count() == 0:
-            btn = frm.get_by_role("button", name=_re.compile(r"Descargar\s+CEP", _re.I)).first
-        if not btn or btn.count() == 0:
-            btn = frm.locator("button:has-text('Descargar CEP'), a:has-text('Descargar CEP')").first
-    except Exception:
-        btn = None
-
-    if not btn or btn.count() == 0:
-        try: page.screenshot(path=str(out_path.parent / "debug_btn_no_encontrado.png"), full_page=True)
-        except Exception: pass
-        return None
-
-    try:
-        page.get_by_role("button", name=_re.compile(r"Aceptar|De acuerdo|OK", _re.I)).click(timeout=1200)
+        if btn and btn.count() > 0:
+            print("[CEP] Botón encontrado por ID")
     except Exception:
         pass
-
-    try: btn.scroll_into_view_if_needed(timeout=4000)
-    except Exception: pass
-    try: btn.click(force=True, timeout=4000)
-    except Exception:
+    
+    if not btn or btn.count() == 0:
         try:
-            btn.evaluate("el => { el.removeAttribute && el.removeAttribute('disabled'); el.click && el.click(); }")
+            # Método 2: Por role y texto
+            btn = frm.get_by_role("button", name=_re.compile(r"Descargar\s+CEP", _re.I)).first
+            if btn and btn.count() > 0:
+                print("[CEP] Botón encontrado por role y texto")
+        except Exception:
+            pass
+    
+    if not btn or btn.count() == 0:
+        try:
+            # Método 3: Por selector CSS
+            btn = frm.locator("button:has-text('Descargar CEP'), a:has-text('Descargar CEP')").first
+            if btn and btn.count() > 0:
+                print("[CEP] Botón encontrado por selector CSS")
         except Exception:
             pass
 
+    if not btn or btn.count() == 0:
+        print("[CEP] ❌ Botón 'Descargar CEP' no encontrado")
+        try: 
+            page.screenshot(path=str(out_path.parent / "debug_btn_no_encontrado.png"), full_page=True)
+            print(f"[CEP] Screenshot guardado: {out_path.parent / 'debug_btn_no_encontrado.png'}")
+        except Exception: 
+            pass
+        return None
+
+    # Verificar si el botón está deshabilitado
+    try:
+        is_disabled = btn.is_disabled(timeout=1000)
+        if is_disabled:
+            print("[CEP] ⚠️ Botón 'Descargar CEP' está DESHABILITADO - movimiento no válido o CEP no disponible")
+            try:
+                page.screenshot(path=str(out_path.parent / "debug_btn_disabled.png"), full_page=True)
+            except Exception:
+                pass
+            return None
+        else:
+            print("[CEP] ✓ Botón habilitado, procediendo a descargar...")
+    except Exception as e:
+        print(f"[CEP] No se pudo verificar estado del botón: {repr(e)}")
+
+    # Cerrar posibles popups/modals
+    try:
+        page.get_by_role("button", name=_re.compile(r"Aceptar|De acuerdo|OK", _re.I)).click(timeout=1200)
+        print("[CEP] Modal/popup cerrado")
+    except Exception:
+        pass
+
+    # Intentar hacer scroll al botón
+    try: 
+        btn.scroll_into_view_if_needed(timeout=4000)
+        print("[CEP] Scroll al botón exitoso")
+    except Exception as e:
+        print(f"[CEP] No se pudo hacer scroll: {repr(e)}")
+
+    # Estrategia 1: Click normal
+    clicked = False
+    try: 
+        btn.click(timeout=4000)
+        clicked = True
+        print("[CEP] ✓ Click normal exitoso")
+    except Exception as e:
+        print(f"[CEP] Click normal falló: {repr(e)}")
+
+    # Estrategia 2: Click forzado
+    if not clicked:
+        try:
+            btn.click(force=True, timeout=4000)
+            clicked = True
+            print("[CEP] ✓ Click forzado exitoso")
+        except Exception as e:
+            print(f"[CEP] Click forzado falló: {repr(e)}")
+
+    # Estrategia 3: Click via JavaScript
+    if not clicked:
+        try:
+            btn.evaluate("el => { if(el.removeAttribute) el.removeAttribute('disabled'); if(el.click) el.click(); }")
+            clicked = True
+            print("[CEP] ✓ Click JavaScript exitoso")
+        except Exception as e:
+            print(f"[CEP] Click JavaScript falló: {repr(e)}")
+
+    if not clicked:
+        print("[CEP] ❌ Todos los métodos de click fallaron")
+        return None
+
+    # Esperar a que se procese el click
     page.wait_for_timeout(4000)
 
     TAB_HOLD_MS = 700
     BETWEEN_TABS_MS = 300
     AFTER_TABS_MS = 1000
 
+    # Intentar capturar la descarga
     try:
+        print("[CEP] Esperando descarga (timeout 30s)...")
         with page.expect_download(timeout=30000) as dlev:
-            for _ in range(4):
+            for i in range(4):
                 page.keyboard.press("Tab", delay=TAB_HOLD_MS)
                 page.wait_for_timeout(BETWEEN_TABS_MS)
             page.wait_for_timeout(AFTER_TABS_MS)
             page.keyboard.press("Enter", delay=120)
+        
         d = dlev.value
         d.save_as(str(out_path))
-        print("[CEP] PDF descargado (TABx4 largos + ENTER) ->", out_path)
+        print(f"[CEP] ✓✓✓ PDF descargado exitosamente -> {out_path.name}")
         return out_path
     except Exception as e:
-        print("[CEP] No se capturó descarga con TAB largos + ENTER:", repr(e))
-        try: page.screenshot(path=str(out_path.parent / "debug_tab_enter_sin_descarga.png"), full_page=True)
-        except Exception: pass
+        print(f"[CEP] ❌ No se capturó descarga: {repr(e)}")
+        try: 
+            page.screenshot(path=str(out_path.parent / "debug_descarga_fallida.png"), full_page=True)
+            print(f"[CEP] Screenshot de fallo guardado: {out_path.parent / 'debug_descarga_fallida.png'}")
+        except Exception: 
+            pass
         return None
 
 def _parse_header_month_year(txt: str) -> Tuple[Optional[int], Optional[int]]:
