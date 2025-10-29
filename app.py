@@ -604,7 +604,9 @@ async def extract_with_cep_generic(
         pdf_path.write_bytes(await file.read())
 
         tam, sha = _save_pdf_to_store(pdf_path)
-        row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel+cep"], tam, sha)
+        id_usuario = user.get("id_usuario")
+        nombre_usuario = user.get("nombre")
+        row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel+cep"], tam, sha, id_usuario, nombre_usuario)
 
         # === Generar XLSX temporal para leer empresa ===
         try:
@@ -658,7 +660,9 @@ async def extract_santander_only(background_tasks: BackgroundTasks, file: Upload
         pdf_path = workdir / original_name
         pdf_path.write_bytes(await file.read())
         tam, sha = _save_pdf_to_store(pdf_path)
-        row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel"], tam, sha)
+        id_usuario = user.get("id_usuario")
+        nombre_usuario = user.get("nombre")
+        row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel"], tam, sha, id_usuario, nombre_usuario)
 
         out_xlsx = workdir / (Path(original_name).stem + "_santander.xlsx")
         await run_in_threadpool(santander.extract_santander_to_xlsx, str(pdf_path), str(out_xlsx))
@@ -698,7 +702,9 @@ async def extract_santander_with_cep(background_tasks: BackgroundTasks, file: Up
         pdf_path = workdir / original_name
         pdf_path.write_bytes(await file.read())
         tam, sha = _save_pdf_to_store(pdf_path)
-        row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel+cep"], tam, sha)
+        id_usuario = user.get("id_usuario")
+        nombre_usuario = user.get("nombre")
+        row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel+cep"], tam, sha, id_usuario, nombre_usuario)
 
         # === XLSX temporal para empresa ===
         try:
@@ -742,7 +748,9 @@ async def extract_banorte_only(background_tasks: BackgroundTasks, file: UploadFi
         pdf_path = workdir / original_name
         pdf_path.write_bytes(await file.read())
         tam, sha = _save_pdf_to_store(pdf_path)
-        row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel"], tam, sha)
+        id_usuario = user.get("id_usuario")
+        nombre_usuario = user.get("nombre")
+        row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel"], tam, sha, id_usuario, nombre_usuario)
 
         out_xlsx = workdir / (Path(original_name).stem + ".xlsx")
         await run_in_threadpool(extract_banorte_to_xlsx, str(pdf_path), str(out_xlsx))
@@ -780,7 +788,9 @@ async def extract_banorte_with_cep(background_tasks: BackgroundTasks, file: Uplo
         pdf_path = workdir / original_name
         pdf_path.write_bytes(await file.read())
         tam, sha = _save_pdf_to_store(pdf_path)
-        row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel+cep"], tam, sha)
+        id_usuario = user.get("id_usuario")
+        nombre_usuario = user.get("nombre")
+        row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel+cep"], tam, sha, id_usuario, nombre_usuario)
 
         # === XLSX temporal para empresa ===
         try:
@@ -811,7 +821,7 @@ async def extract_banorte_with_cep(background_tasks: BackgroundTasks, file: Uplo
         return _as_error(e)
 
 @app.post("/extract/bbva")
-async def extract_bbva_only(background_tasks: BackgroundTasks, file: UploadFile = File(...), empresa: Optional[str] = Form(None)):
+async def extract_bbva_only(background_tasks: BackgroundTasks, file: UploadFile = File(...), empresa: Optional[str] = Form(None), user: dict = Depends(verify_jwt)):
     from bbva_extractor import extract_bbva_to_xlsx
     bank = "bbva"
     original_name = file.filename or "estado.pdf"
@@ -822,7 +832,9 @@ async def extract_bbva_only(background_tasks: BackgroundTasks, file: UploadFile 
         pdf_path = workdir / original_name
         pdf_path.write_bytes(await file.read())
         tam, sha = _save_pdf_to_store(pdf_path)
-        row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel"], tam, sha)
+        id_usuario = user.get("id_usuario")
+        nombre_usuario = user.get("nombre")
+        row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel"], tam, sha, id_usuario, nombre_usuario)
 
         out_xlsx = workdir / (Path(original_name).stem + "_bbva.xlsx")
         await run_in_threadpool(extract_bbva_to_xlsx, str(pdf_path), str(out_xlsx))
@@ -846,7 +858,7 @@ async def extract_bbva_only(background_tasks: BackgroundTasks, file: UploadFile 
         return _as_error(e)
 
 @app.post("/extract/bbva/with-cep")
-async def extract_bbva_with_cep(background_tasks: BackgroundTasks, file: UploadFile = File(...), empresa: Optional[str] = Form(None)):
+async def extract_bbva_with_cep(background_tasks: BackgroundTasks, file: UploadFile = File(...), empresa: Optional[str] = Form(None), user: dict = Depends(verify_jwt)):
     bank = "bbva"
     original_name = file.filename or "estado.pdf"
     pdf_path: Optional[Path] = None
@@ -860,7 +872,9 @@ async def extract_bbva_with_cep(background_tasks: BackgroundTasks, file: UploadF
         pdf_path = workdir / original_name
         pdf_path.write_bytes(await file.read())
         tam, sha = _save_pdf_to_store(pdf_path)
-        row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel+cep"], tam, sha)
+        id_usuario = user.get("id_usuario")
+        nombre_usuario = user.get("nombre")
+        row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel+cep"], tam, sha, id_usuario, nombre_usuario)
 
         # === XLSX temporal para empresa ===
         try:
@@ -892,7 +906,7 @@ async def extract_bbva_with_cep(background_tasks: BackgroundTasks, file: UploadF
 
 # ---------------- Inbursa
 @app.post("/extract/inbursa")
-async def extract_inbursa_only(background_tasks: BackgroundTasks, file: UploadFile = File(...), empresa: Optional[str] = Form(None)):
+async def extract_inbursa_only(background_tasks: BackgroundTasks, file: UploadFile = File(...), empresa: Optional[str] = Form(None), user: dict = Depends(verify_jwt)):
     from inbursa_extractor import extract_inbursa_to_xlsx
     bank = "inbursa"
     original_name = file.filename or "estado.pdf"
@@ -903,7 +917,9 @@ async def extract_inbursa_only(background_tasks: BackgroundTasks, file: UploadFi
         pdf_path = workdir / original_name
         pdf_path.write_bytes(await file.read())
         tam, sha = _save_pdf_to_store(pdf_path)
-        row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel"], tam, sha)
+        id_usuario = user.get("id_usuario")
+        nombre_usuario = user.get("nombre")
+        row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel"], tam, sha, id_usuario, nombre_usuario)
 
         out_xlsx = workdir / (pdf_path.stem + "_inbursa.xlsx")
         await run_in_threadpool(extract_inbursa_to_xlsx, str(pdf_path), str(out_xlsx))
@@ -927,7 +943,7 @@ async def extract_inbursa_only(background_tasks: BackgroundTasks, file: UploadFi
         return _as_error(e)
 
 @app.post("/extract/inbursa/with-cep")
-async def extract_inbursa_with_cep(background_tasks: BackgroundTasks, file: UploadFile = File(...), empresa: Optional[str] = Form(None)):
+async def extract_inbursa_with_cep(background_tasks: BackgroundTasks, file: UploadFile = File(...), empresa: Optional[str] = Form(None), user: dict = Depends(verify_jwt)):
     bank = "inbursa"
     original_name = file.filename or "estado.pdf"
     pdf_path: Optional[Path] = None
@@ -941,7 +957,9 @@ async def extract_inbursa_with_cep(background_tasks: BackgroundTasks, file: Uplo
         pdf_path = workdir / original_name
         pdf_path.write_bytes(await file.read())
         tam, sha = _save_pdf_to_store(pdf_path)
-        row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel+cep"], tam, sha)
+        id_usuario = user.get("id_usuario")
+        nombre_usuario = user.get("nombre")
+        row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel+cep"], tam, sha, id_usuario, nombre_usuario)
 
         # === XLSX temporal para empresa ===
         try:
