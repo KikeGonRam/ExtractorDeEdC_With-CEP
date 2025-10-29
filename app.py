@@ -37,27 +37,66 @@ JWT_SECRET = os.getenv("JWT_SECRET", "supersecreto123")
 def verify_jwt(request: Request):
     # Prefer standard Authorization header but allow legacy custom header
     token = request.headers.get("auth_token") or request.headers.get("Authorization")
+    
+    # Log para debugging
+    logger.info(f"[JWT DEBUG] Verificando token. auth_token presente: {bool(request.headers.get('auth_token'))}, Authorization presente: {bool(request.headers.get('Authorization'))}")
+    
     if token and isinstance(token, str) and token.startswith("Bearer "):
         token = token.split(" ", 1)[1]
+        logger.info("[JWT DEBUG] Token extraído del formato Bearer")
+    
     if not token:
         # Log header keys for debugging (do NOT log header values / token)
         try:
             hdrs = list(request.headers.keys())
         except Exception:
             hdrs = []
-        logger.warning("JWT requerido pero no se encontró token en headers. Header keys: %s", hdrs)
-        raise HTTPException(status_code=401, detail="Token JWT requerido")
+        logger.warning(f"JWT requerido pero no se encontró token en headers. Header keys: {hdrs}")
+        logger.warning(f"Path solicitado: {request.url.path}")
+        raise HTTPException(
+            status_code=401, 
+            detail={
+                "error": "Token JWT requerido",
+                "message": "No se proporcionó token de autenticación. Envía el token en el header 'Authorization: Bearer TOKEN' o 'auth_token: TOKEN'",
+                "path": str(request.url.path)
+            }
+        )
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-        return payload  # Puedes retornar el usuario si lo necesitas
+        logger.info(f"[JWT DEBUG] Token válido para usuario: {payload.get('id_usuario', 'unknown')}")
+        return payload
+    except jwt.ExpiredSignatureError:
+        logger.warning("Token JWT expirado")
+        raise HTTPException(
+            status_code=401, 
+            detail={
+                "error": "Token expirado",
+                "message": "El token JWT ha expirado. Por favor, inicia sesión nuevamente."
+            }
+        )
+    except jwt.InvalidTokenError as e:
+        logger.warning(f"Token JWT inválido: {type(e).__name__}")
+        raise HTTPException(
+            status_code=403, 
+            detail={
+                "error": "Token inválido",
+                "message": "El token JWT proporcionado no es válido."
+            }
+        )
     except Exception as e:
         # Evita lanzar AttributeError si la librería jwt difiere en excepciones
         try:
             hdrs = list(request.headers.keys())
         except Exception:
             hdrs = []
-        logger.warning("Falló la verificación JWT (%s). Header keys: %s", type(e).__name__, hdrs)
-        raise HTTPException(status_code=403, detail="Token JWT inválido")
+        logger.error(f"Error inesperado al verificar JWT ({type(e).__name__}): {str(e)}. Header keys: {hdrs}")
+        raise HTTPException(
+            status_code=403, 
+            detail={
+                "error": "Error de autenticación",
+                "message": "Ocurrió un error al verificar el token."
+            }
+        )
 
 def get_user_info_from_jwt(user: dict) -> tuple[int, str]:
     """
@@ -448,12 +487,12 @@ def _update_finish(
 # ==========================
 app = FastAPI(title="Extractor de estados (Banorte / BBVA / Santander / Inbursa)")
 # lee orígenes desde env o usa los típicos de dev
-_CORS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
+_CORS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,https://bechapra.com.mx").split(",")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in _CORS if o.strip()],
-    allow_credentials=False,          # no usamos cookies, evita problemas con '*'
+    allow_credentials=True,          # Permitir credenciales para enviar tokens
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["Content-Disposition"],
@@ -483,6 +522,22 @@ def home():
 @app.get("/healthz")
 def healthz():
     return {"ok": True, "static_dir": str(STATIC_DIR), "has_index": (STATIC_DIR / "index.html").exists()}
+
+@app.get("/auth/verify")
+def verify_token(user: dict = Depends(verify_jwt)):
+    """
+    Endpoint para verificar si un token JWT es válido.
+    Útil para que el frontend verifique la autenticación antes de hacer otras peticiones.
+    """
+    id_usuario, nombre_usuario = get_user_info_from_jwt(user)
+    return {
+        "valid": True,
+        "user": {
+            "id_usuario": id_usuario,
+            "nombre_usuario": nombre_usuario,
+            "token_payload": user
+        }
+    }
 
 @app.get("/solicitudes/stats")
 def solicitudes_stats(

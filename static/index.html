@@ -108,7 +108,14 @@
         const fd = new FormData();
         fd.append('file', fileObj);
 
-        const res = await fetch(endpoint, { method: 'POST', body: fd });
+        // Obtener token JWT del localStorage
+        const token = localStorage.getItem('auth_token') || localStorage.getItem('token');
+        const headers = {};
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const res = await fetch(endpoint, { method: 'POST', body: fd, headers });
 
         if (!res.ok) {
           let msg = '';
