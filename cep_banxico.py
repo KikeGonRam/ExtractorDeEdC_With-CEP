@@ -1126,18 +1126,37 @@ def download_cep(job: CepJob, target_dir: Path, headless: bool = True, slowmo: i
         }
         
         # Si es headless, agregar argumentos adicionales para evitar errores en servidores sin X
+        # y para evadir detección de bots
         if headless:
             launch_args["args"] = [
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
+                "--disable-blink-features=AutomationControlled",  # Evitar detección de automation
             ]
         
         browser = p.chromium.launch(**launch_args)
-        ctx = browser.new_context(accept_downloads=True)
+        
+        # Contexto del navegador con configuración más "humana"
+        ctx = browser.new_context(
+            accept_downloads=True,
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            viewport={"width": 1920, "height": 1080},
+            locale="es-MX",
+            timezone_id="America/Mexico_City",
+            extra_http_headers={
+                "Accept-Language": "es-MX,es;q=0.9,en;q=0.8",
+            }
+        )
+        
         page = ctx.new_page()
         page.set_default_timeout(35000)
+        
+        # Agregar delay aleatorio entre 1-3 segundos al inicio para parecer más humano
+        import random
+        initial_delay = random.uniform(1000, 3000)
+        page.wait_for_timeout(int(initial_delay))
 
         # AUTO-SAVE por si abre en popup o se hace click manual
         import time as _time
@@ -1329,6 +1348,12 @@ def build_zip_with_ceps_from_xlsx(xlsx_path: str, zip_out: str, headless: bool =
                         w.writerow([j.sheet, j.row_index, j.fecha, j.monto, j.clave_rastreo or "", j.numero_referencia or "", "ok", pth.name])
                     else:
                         w.writerow([j.sheet, j.row_index, j.fecha, j.monto, j.clave_rastreo or "", j.numero_referencia or "", "fail", "button_disabled_or_timeout"])
+                    
+                    # Delay aleatorio entre movimientos (2-5 segundos) para evitar detección de bot
+                    import random, time
+                    delay = random.uniform(2.0, 5.0)
+                    time.sleep(delay)
+                    
                 except Exception as e:
                     w.writerow([j.sheet, j.row_index, j.fecha, j.monto, j.clave_rastreo or "", j.numero_referencia or "", "fail", repr(e)])
         else:
