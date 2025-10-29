@@ -59,6 +59,25 @@ def verify_jwt(request: Request):
         logger.warning("Falló la verificación JWT (%s). Header keys: %s", type(e).__name__, hdrs)
         raise HTTPException(status_code=403, detail="Token JWT inválido")
 
+def get_user_info_from_jwt(user: dict) -> tuple[int, str]:
+    """
+    Extrae id_usuario y nombre_usuario del payload JWT.
+    Intenta múltiples campos posibles y proporciona valores por defecto.
+    """
+    id_usuario = user.get("id_usuario") or user.get("user_id") or user.get("id") or 0
+    
+    # Intentar obtener el nombre de varios campos posibles
+    nombre_usuario = (
+        user.get("nombre") or 
+        user.get("nombre_usuario") or 
+        user.get("name") or 
+        user.get("username") or 
+        user.get("email") or 
+        f"usuario_{id_usuario}"
+    )
+    
+    return id_usuario, nombre_usuario
+
 # ==========================
 #   Rutas de estáticos y store
 # ==========================
@@ -555,8 +574,7 @@ async def extract_generic(
         pdf_path.write_bytes(await file.read())
 
         tam, sha = _save_pdf_to_store(pdf_path)
-        id_usuario = user.get("id_usuario")
-        nombre_usuario = user.get("nombre")
+        id_usuario, nombre_usuario = get_user_info_from_jwt(user)
         row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel"], tam, sha, id_usuario, nombre_usuario)
 
         out_xlsx = workdir / (Path(original_name).stem + ".xlsx")
@@ -604,8 +622,7 @@ async def extract_with_cep_generic(
         pdf_path.write_bytes(await file.read())
 
         tam, sha = _save_pdf_to_store(pdf_path)
-        id_usuario = user.get("id_usuario")
-        nombre_usuario = user.get("nombre")
+        id_usuario, nombre_usuario = get_user_info_from_jwt(user)
         row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel+cep"], tam, sha, id_usuario, nombre_usuario)
 
         # === Generar XLSX temporal para leer empresa ===
@@ -660,8 +677,7 @@ async def extract_santander_only(background_tasks: BackgroundTasks, file: Upload
         pdf_path = workdir / original_name
         pdf_path.write_bytes(await file.read())
         tam, sha = _save_pdf_to_store(pdf_path)
-        id_usuario = user.get("id_usuario")
-        nombre_usuario = user.get("nombre")
+        id_usuario, nombre_usuario = get_user_info_from_jwt(user)
         row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel"], tam, sha, id_usuario, nombre_usuario)
 
         out_xlsx = workdir / (Path(original_name).stem + "_santander.xlsx")
@@ -702,8 +718,7 @@ async def extract_santander_with_cep(background_tasks: BackgroundTasks, file: Up
         pdf_path = workdir / original_name
         pdf_path.write_bytes(await file.read())
         tam, sha = _save_pdf_to_store(pdf_path)
-        id_usuario = user.get("id_usuario")
-        nombre_usuario = user.get("nombre")
+        id_usuario, nombre_usuario = get_user_info_from_jwt(user)
         row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel+cep"], tam, sha, id_usuario, nombre_usuario)
 
         # === XLSX temporal para empresa ===
@@ -748,8 +763,7 @@ async def extract_banorte_only(background_tasks: BackgroundTasks, file: UploadFi
         pdf_path = workdir / original_name
         pdf_path.write_bytes(await file.read())
         tam, sha = _save_pdf_to_store(pdf_path)
-        id_usuario = user.get("id_usuario")
-        nombre_usuario = user.get("nombre")
+        id_usuario, nombre_usuario = get_user_info_from_jwt(user)
         row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel"], tam, sha, id_usuario, nombre_usuario)
 
         out_xlsx = workdir / (Path(original_name).stem + ".xlsx")
@@ -788,8 +802,7 @@ async def extract_banorte_with_cep(background_tasks: BackgroundTasks, file: Uplo
         pdf_path = workdir / original_name
         pdf_path.write_bytes(await file.read())
         tam, sha = _save_pdf_to_store(pdf_path)
-        id_usuario = user.get("id_usuario")
-        nombre_usuario = user.get("nombre")
+        id_usuario, nombre_usuario = get_user_info_from_jwt(user)
         row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel+cep"], tam, sha, id_usuario, nombre_usuario)
 
         # === XLSX temporal para empresa ===
@@ -832,8 +845,7 @@ async def extract_bbva_only(background_tasks: BackgroundTasks, file: UploadFile 
         pdf_path = workdir / original_name
         pdf_path.write_bytes(await file.read())
         tam, sha = _save_pdf_to_store(pdf_path)
-        id_usuario = user.get("id_usuario")
-        nombre_usuario = user.get("nombre")
+        id_usuario, nombre_usuario = get_user_info_from_jwt(user)
         row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel"], tam, sha, id_usuario, nombre_usuario)
 
         out_xlsx = workdir / (Path(original_name).stem + "_bbva.xlsx")
@@ -872,8 +884,7 @@ async def extract_bbva_with_cep(background_tasks: BackgroundTasks, file: UploadF
         pdf_path = workdir / original_name
         pdf_path.write_bytes(await file.read())
         tam, sha = _save_pdf_to_store(pdf_path)
-        id_usuario = user.get("id_usuario")
-        nombre_usuario = user.get("nombre")
+        id_usuario, nombre_usuario = get_user_info_from_jwt(user)
         row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel+cep"], tam, sha, id_usuario, nombre_usuario)
 
         # === XLSX temporal para empresa ===
@@ -917,8 +928,7 @@ async def extract_inbursa_only(background_tasks: BackgroundTasks, file: UploadFi
         pdf_path = workdir / original_name
         pdf_path.write_bytes(await file.read())
         tam, sha = _save_pdf_to_store(pdf_path)
-        id_usuario = user.get("id_usuario")
-        nombre_usuario = user.get("nombre")
+        id_usuario, nombre_usuario = get_user_info_from_jwt(user)
         row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel"], tam, sha, id_usuario, nombre_usuario)
 
         out_xlsx = workdir / (pdf_path.stem + "_inbursa.xlsx")
@@ -957,8 +967,7 @@ async def extract_inbursa_with_cep(background_tasks: BackgroundTasks, file: Uplo
         pdf_path = workdir / original_name
         pdf_path.write_bytes(await file.read())
         tam, sha = _save_pdf_to_store(pdf_path)
-        id_usuario = user.get("id_usuario")
-        nombre_usuario = user.get("nombre")
+        id_usuario, nombre_usuario = get_user_info_from_jwt(user)
         row_id = _insert_processing(original_name, bank, empresa, RESULT_APP2DB["excel+cep"], tam, sha, id_usuario, nombre_usuario)
 
         # === XLSX temporal para empresa ===
