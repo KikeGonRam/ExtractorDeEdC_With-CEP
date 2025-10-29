@@ -1119,7 +1119,22 @@ def download_cep(job: CepJob, target_dir: Path, headless: bool = True, slowmo: i
     out_path = target_dir / f"{job.fecha}_{keyname[:24]}_{job.monto:.2f}.pdf"
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=headless, slow_mo=slowmo)
+        # Argumentos para ejecutar en servidor sin GUI
+        launch_args = {
+            "headless": headless,
+            "slow_mo": slowmo,
+        }
+        
+        # Si es headless, agregar argumentos adicionales para evitar errores en servidores sin X
+        if headless:
+            launch_args["args"] = [
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+            ]
+        
+        browser = p.chromium.launch(**launch_args)
         ctx = browser.new_context(accept_downloads=True)
         page = ctx.new_page()
         page.set_default_timeout(35000)
